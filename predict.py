@@ -157,25 +157,25 @@ class Predictor(BasePredictor):
             default=DEFAULT_CKPT,
         ),
         handle_y_pct: float = Input(
-            description="Set the y-coordinate percentage for the starting position. Lower values represent higher positions on the screen.",
+            description="Percentage defining the starting y-coordinate from the bottom. Higher values mean higher up on the screen.",
             ge=0,
             le=100,
             default=50,
         ),
         handle_x_pct: float = Input(
-            description="Set the x-coordinate percentage for the starting position. Lower values represent more leftward positions on the screen.",
+            description="Percentage defining the starting x-coordinate from the left. Higher values mean further to the right on the screen.",
             ge=0,
             le=100,
             default=50,
         ),
         target_y_pct: float = Input(
-            description="Set the y-coordinate percentage for the final position. Lower values represent higher positions on the screen.",
+            description="Percentage defining the final y-coordinate from the bottom. Higher values mean higher up on the screen.",
             ge=0,
             le=100,
             default=40,
         ),
         target_x_pct: float = Input(
-            description="Set the x-coordinate percentage for the final position. Lower values represent more leftward positions on the screen.",
+            description="Percentage defining the final x-coordinate from the left. Higher values mean further to the right on the screen.",
             ge=0,
             le=100,
             default=10,
@@ -200,10 +200,9 @@ class Predictor(BasePredictor):
         self.init_output_dir()
 
         size = CKPT_SIZE[stylegan2_model]
-        handle_y = int(size * handle_y_pct / 100)
-        handle_x = int(size * handle_x_pct / 100)
-        target_y = int(size * target_y_pct / 100)
-        target_x = int(size * target_x_pct / 100)
+        # Origin is bottom left
+        handle_y, target_y = (int(size * (100 - handle_y_pct) / 100), int(size * (100 - target_y_pct) / 100))
+        handle_x, target_x = (int(size * handle_x_pct / 100), int(size * target_x_pct / 100))
 
         points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}
 
