@@ -1,3 +1,22 @@
+# Ignore temp files
+out/
+draggan_tmp
+.cog/
+
+# Ignore image file types
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.svg
+*.ico
+*.tif
+*.tiff
+*.webp
+*.heic
+.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
