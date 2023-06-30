@@ -54,15 +54,67 @@ class Predictor(BasePredictor):
             truncation_cutoff=8,
         )
         img, F0 = draggan.generate_image(W, G, device=device)
+        model = {"G": G}
 
     def predict(
         self,
-        StyleGAN2_model: str = Input(description="Select a StyleGAN2 model", choices=list(CKPT_SIZE.keys()), default=DEFAULT_CKPT),
-        Seed: int = Input(description="Specify the seed for image generation", ge=0, le=100, default=1),
-        Learning_Rate: float = Input(description="Specify the learning rate for the drag operation", ge=1e-4, le=1, default=2e-3),
-        Max_Iterations: int = Input(description="Specify the maximum iterations for the drag operation", ge=1, le=500, default=20),
+        stylegan2_model: str = Input(
+            description="Select a StyleGAN2 model", choices=list(CKPT_SIZE.keys()), default=DEFAULT_CKPT
+        ),
+        seed: int = Input(description="Specify the seed for image generation", ge=0, le=100, default=1),
+        learning_rate: float = Input(
+            description="Specify the learning rate for the drag operation", ge=1e-4, le=1, default=2e-3
+        ),
+        max_iterations: int = Input(
+            description="Specify the maximum iterations for the drag operation", ge=1, le=500, default=20
+        ),
     ) -> Path:
         """Run a single prediction on the model"""
-        ...
+        model, points, max_iters, state, size, mask, lr_box
 
+        if len(points["handle"]) == 0:
+            raise Exception("You must select at least one handle point and target point.")
+        if len(points["handle"]) != len(points["target"]):
+            raise Exception(
+                "You have uncompleted handle points, try to selct a target point or undo the handle point."
+            )
 
+        max_iters = int(max_iters)
+        W = state["W"]
+
+        handle_points = [torch.tensor(p, device=device).float() for p in points["handle"]]
+        target_points = [torch.tensor(p, device=device).float() for p in points["target"]]
+
+        if mask.get("mask") is not None:
+            mask = Image.fromarray(mask["mask"]).convert("L")
+            mask = np.array(mask) == 255
+
+            mask = torch.from_numpy(mask).float().to(device)
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        else:
+            mask = None
+
+        step = 0
+        output_directory = "./out/"
+        os.makedirs(output_directory, exist_ok=True)
+
+        for image, W, handle_points in drag_gan(
+            W,
+            model["G"],
+            handle_points,
+            target_points,
+            mask,
+            max_iters=max_iters,
+            lr=lr_box,
+        ):
+            points["handle"] = [p.cpu().numpy().astype("int") for p in handle_points]
+            image = add_points_to_image(image, points, size=SIZE_TO_CLICK_SIZE[size])
+
+            state["history"].append(image)
+            step += 1
+
+            # Save image to disk
+            output_path = os.path.join(output_directory, f"output_{step}.png")
+            Image.fromarray(image).save(output_path)
+
+            yield image, state, step
