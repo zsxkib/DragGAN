@@ -15,7 +15,8 @@ draggan_tmp
 *.tiff
 *.webp
 *.heic
-.png
+*.png
+*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

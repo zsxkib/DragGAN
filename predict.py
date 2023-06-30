@@ -38,8 +38,8 @@ CKPT_SIZE = {
     "self_distill/lions_512_pytorch.pkl": 512,
     "self_distill/parrots_512_pytorch.pkl": 512,
 }
-DEFAULT_CKPT = "ada/afhqcat.pkl"
-OUTPUT_DIR = "./out"
+DEFAULT_CKPT = "ada/afhqcat.pkl"  # NOTE: Not wrapped in Path(.) on purpose
+OUTPUT_DIR = Path("./out")
 
 
 class Predictor(BasePredictor):
@@ -50,21 +50,25 @@ class Predictor(BasePredictor):
         self.load_model(DEFAULT_CKPT)
 
     def init_output_dir(self):
-        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        for child in OUTPUT_DIR.iterdir():
+            if child.is_file():
+                child.unlink()
+            else:
+                shutil.rmtree(child)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     def load_model(self, checkpoint=DEFAULT_CKPT):
-        if checkpoint != DEFAULT_CKPT:
-            self.G = draggan.load_model(utils.get_path(checkpoint), device=self.device)
-            self.W = draggan.generate_W(
-                self.G,
-                seed=int(1),
-                device=self.device,
-                truncation_psi=0.8,
-                truncation_cutoff=8,
-            )
-            self.img, self.F0 = draggan.generate_image(self.W, self.G, device=self.device)
-            self.model = {"G": self.G}
+        self.G = draggan.load_model(utils.get_path(checkpoint), device=self.device)
+        self.W = draggan.generate_W(
+            self.G,
+            seed=int(1),
+            device=self.device,
+            truncation_psi=0.8,
+            truncation_cutoff=8,
+        )
+        self.img, self.F0 = draggan.generate_image(self.W, self.G, device=self.device)
+        self.model = {"G": self.G}
+        self.current_checkpoint = checkpoint
 
     def add_points_to_image(self, image, points, point_size=5):
         image = utils.draw_handle_target_points(image, points["handle"], points["target"], point_size)
@@ -102,53 +106,91 @@ class Predictor(BasePredictor):
             state["history"].append(image)
             step += 1
 
-            output_path = os.path.join(OUTPUT_DIR, f"output_{step}.png")
+            output_path = OUTPUT_DIR / f"output_{step}.png"
             Image.fromarray(image).save(output_path)
 
             yield (image, state, step)
 
     def predict(
         self,
+        just_render_first_frame: bool = Input(
+            description="If true, only the first frame will be rendered, providing a preview of the initial and final positions.",
+            default=False,
+        ),
         stylegan2_model: str = Input(
-            description="Select a StyleGAN2 model", choices=list(CKPT_SIZE.keys()), default=DEFAULT_CKPT
+            description="The chosen StyleGAN2 model to perform the operation.",
+            choices=list(CKPT_SIZE.keys()),
+            default=DEFAULT_CKPT,
         ),
-        handle_y: int = Input(
-            description="Specify the y-coordinate for the start point ", ge=0, le=512, default=379
+        handle_y_pct: float = Input(
+            description="Set the y-coordinate percentage for the starting position. Lower values represent higher positions on the screen.",
+            ge=0,
+            le=100,
+            default=50,
         ),
-        handle_x: int = Input(
-            description="Specify the x-coordinate for the start point", ge=0, le=512, default=247
+        handle_x_pct: float = Input(
+            description="Set the x-coordinate percentage for the starting position. Lower values represent more leftward positions on the screen.",
+            ge=0,
+            le=100,
+            default=50,
         ),
-        target_y: int = Input(
-            description="Specify the y-coordinate for the start point ", ge=0, le=512, default=309
+        target_y_pct: float = Input(
+            description="Set the y-coordinate percentage for the final position. Lower values represent higher positions on the screen.",
+            ge=0,
+            le=100,
+            default=40,
         ),
-        target_x: int = Input(
-            description="Specify the x-coordinate for the start point", ge=0, le=512, default=57
+        target_x_pct: float = Input(
+            description="Set the x-coordinate percentage for the final position. Lower values represent more leftward positions on the screen.",
+            ge=0,
+            le=100,
+            default=10,
         ),
         lr_box: float = Input(
-            description="Specify the learning rate for the drag operation", ge=1e-4, le=1, default=2e-3
+            description="Set the learning rate for the operation, which controls how quickly the model learns to drag the path from the initial to the final position.",
+            ge=1e-4,
+            le=1,
+            default=3e-3,
         ),
         max_iters: int = Input(
-            description="Specify the maximum iterations for the drag operation", ge=1, le=500, default=20
+            description="The maximum number of iterations allowed for the operation, limiting how long the path dragging can continue.",
+            ge=1,
+            le=100,
+            default=20,
         ),
     ) -> Path:
         """Run a single prediction on the model"""
-        self.load_model(stylegan2_model)
+
+        if self.current_checkpoint != stylegan2_model:
+            self.load_model(stylegan2_model)
         self.init_output_dir()
 
-        points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}  # TODO: add as param
-        state = {"W": self.W, "history": []}
         size = CKPT_SIZE[stylegan2_model]
+        handle_y = int(size * handle_y_pct / 100)
+        handle_x = int(size * handle_x_pct / 100)
+        target_y = int(size * target_y_pct / 100)
+        target_x = int(size * target_x_pct / 100)
+
+        points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}
+
+        state = {"W": self.W, "history": []}
         mask = {}
+        max_iters = 1 if just_render_first_frame else max_iters
+        lr_box = 0 if just_render_first_frame else lr_box
+        f = (
+            OUTPUT_DIR / f"output_1.png"
+            if just_render_first_frame
+            else OUTPUT_DIR / f"video_{uuid.uuid4()}.mp4"
+        )
 
-        frames = []
-        for image, _, _ in tqdm(
-            self.on_drag(self.model, points, max_iters, state, size, mask, lr_box),
-            total=max_iters,
-        ):
-            frames.append(image)
+        frames = [
+            image
+            for image, _, _ in tqdm(
+                self.on_drag(self.model, points, max_iters, state, size, mask, lr_box),
+                total=max_iters,
+            )
+        ]
+        if not just_render_first_frame:
+            imageio.mimsave(f, frames)
 
-        # use output_frames to create video
-        video_name = os.path.join(OUTPUT_DIR, f"video_{uuid.uuid4()}.mp4")
-        imageio.mimsave(video_name, frames)
-
-        return Path(video_name)
+        return Path(f)

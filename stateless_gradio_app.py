@@ -42,7 +42,7 @@ DEFAULT_CKPT = "ada/afhqcat.pkl"
 import logging
 
 # Configure logging
-logging.basicConfig(filename='./debug.log', level=logging.DEBUG, 
+logging.basicConfig(filename='debug.log', level=logging.DEBUG, 
                     format='%(asctime)s %(levelname)s %(name)s %(message)s')
 logger=logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def on_drag(model, points, max_iters, state, size, mask, lr_box):
     handle_points = [torch.tensor(p, device=device).float() for p in points["handle"]]
     target_points = [torch.tensor(p, device=device).float() for p in points["target"]]
 
-    if mask.get("mask", None) is not None:
+    if mask.get("mask") is not None:
         mask = Image.fromarray(mask["mask"]).convert("L")
         mask = np.array(mask) == 255
 
