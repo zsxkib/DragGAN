@@ -108,19 +108,31 @@ class Predictor(BasePredictor):
         #     description="Select a StyleGAN2 model", choices=list(CKPT_SIZE.keys()), default=DEFAULT_CKPT
         # ),
         # seed: int = Input(description="Specify the seed for image generation", ge=0, le=100, default=1),
+        handle_y: int = Input(
+            description="Specify the y-coordinate for the start point ", ge=0, le=512, default=379
+        ),
+        handle_x: int = Input(
+            description="Specify the x-coordinate for the start point", ge=0, le=512, default=247
+        ),
+        target_y: int = Input(
+            description="Specify the y-coordinate for the start point ", ge=0, le=512, default=309
+        ),
+        target_x: int = Input(
+            description="Specify the x-coordinate for the start point", ge=0, le=512, default=57
+        ),
         lr_box: float = Input(
             description="Specify the learning rate for the drag operation", ge=1e-4, le=1, default=2e-3
         ),
         max_iters: int = Input(
             description="Specify the maximum iterations for the drag operation", ge=1, le=500, default=20
         ),
-    ) -> List[Path]:
+    ) -> Path:
         """Run a single prediction on the model"""
 
         shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-        points = {"target": [[309, 57]], "handle": [[379, 247]]}  # TODO: add as param
+        points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}  # TODO: add as param
         state = {"W": self.W, "history": []}
         size = 512  # TODO: add as param
         mask = {}
