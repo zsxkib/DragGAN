@@ -10,6 +10,7 @@ import numpy as np
 import imageio
 from PIL import Image
 import uuid
+from tqdm import tqdm
 
 from draggan import utils
 from draggan.draggan import drag_gan
@@ -38,31 +39,35 @@ CKPT_SIZE = {
     "self_distill/parrots_512_pytorch.pkl": 512,
 }
 DEFAULT_CKPT = "ada/afhqcat.pkl"
-OUTPUT_DIR = "./out/"
+OUTPUT_DIR = "./out"
 
 
 class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
-
         self.device = "cuda"
+        self.init_output_dir()
+        self.load_model(DEFAULT_CKPT)
 
+    def init_output_dir(self):
         shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-        self.G = draggan.load_model(utils.get_path(DEFAULT_CKPT), device=self.device)
-        self.W = draggan.generate_W(
-            self.G,
-            seed=int(1),
-            device=self.device,
-            truncation_psi=0.8,
-            truncation_cutoff=8,
-        )
-        self.img, self.F0 = draggan.generate_image(self.W, self.G, device=self.device)
-        self.model = {"G": self.G}
+    def load_model(self, checkpoint=DEFAULT_CKPT):
+        if checkpoint != DEFAULT_CKPT:
+            self.G = draggan.load_model(utils.get_path(checkpoint), device=self.device)
+            self.W = draggan.generate_W(
+                self.G,
+                seed=int(1),
+                device=self.device,
+                truncation_psi=0.8,
+                truncation_cutoff=8,
+            )
+            self.img, self.F0 = draggan.generate_image(self.W, self.G, device=self.device)
+            self.model = {"G": self.G}
 
-    def add_points_to_image(self, image, points, size=5):
-        image = utils.draw_handle_target_points(image, points["handle"], points["target"], size)
+    def add_points_to_image(self, image, points, point_size=5):
+        image = utils.draw_handle_target_points(image, points["handle"], points["target"], point_size)
         return image
 
     def on_drag(self, model, points, max_iters, state, size, mask, lr_box):
@@ -92,7 +97,7 @@ class Predictor(BasePredictor):
             W, model["G"], handle_points, target_points, mask, max_iters=max_iters, lr=lr_box
         ):
             points["handle"] = [p.cpu().numpy().astype("int") for p in handle_points]
-            image = self.add_points_to_image(image, points, size=SIZE_TO_CLICK_SIZE[size])
+            image = self.add_points_to_image(image, points, point_size=SIZE_TO_CLICK_SIZE[size])
 
             state["history"].append(image)
             step += 1
@@ -104,10 +109,9 @@ class Predictor(BasePredictor):
 
     def predict(
         self,
-        # stylegan2_model: str = Input(
-        #     description="Select a StyleGAN2 model", choices=list(CKPT_SIZE.keys()), default=DEFAULT_CKPT
-        # ),
-        # seed: int = Input(description="Specify the seed for image generation", ge=0, le=100, default=1),
+        stylegan2_model: str = Input(
+            description="Select a StyleGAN2 model", choices=list(CKPT_SIZE.keys()), default=DEFAULT_CKPT
+        ),
         handle_y: int = Input(
             description="Specify the y-coordinate for the start point ", ge=0, le=512, default=379
         ),
@@ -128,21 +132,23 @@ class Predictor(BasePredictor):
         ),
     ) -> Path:
         """Run a single prediction on the model"""
-
-        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        self.load_model(stylegan2_model)
+        self.init_output_dir()
 
         points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}  # TODO: add as param
         state = {"W": self.W, "history": []}
-        size = 512  # TODO: add as param
+        size = CKPT_SIZE[stylegan2_model]
         mask = {}
 
         frames = []
-        for image, _, _ in self.on_drag(self.model, points, max_iters, state, size, mask, lr_box):
+        for image, _, _ in tqdm(
+            self.on_drag(self.model, points, max_iters, state, size, mask, lr_box),
+            total=max_iters,
+        ):
             frames.append(image)
 
         # use output_frames to create video
-        video_name = f"{OUTPUT_DIR}video_{uuid.uuid4()}.mp4"
+        video_name = os.path.join(OUTPUT_DIR, f"video_{uuid.uuid4()}.mp4")
         imageio.mimsave(video_name, frames)
 
         return Path(video_name)
