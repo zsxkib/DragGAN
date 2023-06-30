@@ -4,7 +4,7 @@
 build:
   # set to true if your model requires a GPU
   gpu: true
-  cuda: "10.1"
+  # cuda: "12.2"
 
   # a list of ubuntu apt packages to install
   # system_packages:
@@ -12,20 +12,20 @@ build:
     # - "libglib2.0-0"
 
   # python version in the form '3.8' or '3.8.12'
-  python_version: "3.7.16"
+  python_version: "3.7"
 
   # a list of packages in the format <package-name>==<version>
   python_packages:
-    - "tqdm==4.65.0"
-    - "torch==1.13.1"
-    - "torchvision==0.14.1"
-    - "numpy==1.21.5"
-    - "ninja==1.11.1"
-    - "fire==0.5.0"
-    - "imageio==2.31.1"
-    - "imageio-ffmpeg==0.4.8"
-    - "scikit-image==0.19.3"
-    - "IPython==7.34.0"
+    - "tqdm>=4.65.0"
+    - "torch>=1.13.1"
+    - "torchvision>=0.14.1"
+    - "numpy>=1.21.5"
+    - "ninja>=1.11.1"
+    - "fire>=0.5.0"
+    - "imageio>=2.31.1"
+    - "imageio-ffmpeg>=0.4.8"
+    - "scikit-image>=0.19.3"
+    - "IPython>=7.34.0"
 
     # - "aiofiles==22.1.0"
     # - "aiohttp==3.8.4"

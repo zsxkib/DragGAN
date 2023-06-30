@@ -1,6 +1,7 @@
 # Prediction interface for Cog ⚙️
 # https://github.com/replicate/cog/blob/main/docs/python.md
 
+from typing import List
 from cog import BasePredictor, Input, Path
 import os
 import shutil
@@ -47,7 +48,7 @@ class Predictor(BasePredictor):
         self.device = "cuda"
 
         shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-        os.makedirs(OUTPUT_DIR)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
 
         self.G = draggan.load_model(utils.get_path(DEFAULT_CKPT), device=self.device)
         self.W = draggan.generate_W(
@@ -87,9 +88,6 @@ class Predictor(BasePredictor):
             mask = None
 
         step = 0
-        output_directory = "./out/"
-        os.makedirs(output_directory, exist_ok=True)
-
         for image, W, handle_points in drag_gan(
             W, model["G"], handle_points, target_points, mask, max_iters=max_iters, lr=lr_box
         ):
@@ -99,10 +97,10 @@ class Predictor(BasePredictor):
             state["history"].append(image)
             step += 1
 
-            output_path = os.path.join(output_directory, f"output_{step}.png")
+            output_path = os.path.join(OUTPUT_DIR, f"output_{step}.png")
             Image.fromarray(image).save(output_path)
 
-            yield image, state, step
+            yield (image, state, step)
 
     def predict(
         self,
@@ -116,23 +114,23 @@ class Predictor(BasePredictor):
         max_iters: int = Input(
             description="Specify the maximum iterations for the drag operation", ge=1, le=500, default=20
         ),
-    ) -> Path:
+    ) -> List[Path]:
         """Run a single prediction on the model"""
 
         shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-        os.makedirs(OUTPUT_DIR)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
 
         points = {"target": [[309, 57]], "handle": [[379, 247]]}  # TODO: add as param
         state = {"W": self.W, "history": []}
         size = 512  # TODO: add as param
         mask = {}
 
-        # NOTE: We wrap in list to "wait" for Generator (on_drag)
-        _ = list(self.on_drag(self.model, points, max_iters, state, size, mask, lr_box))
+        frames = []
+        for image, _, _ in self.on_drag(self.model, points, max_iters, state, size, mask, lr_box):
+            frames.append(image)
 
-        output_paths = [Path(OUTPUT_DIR) / file for file in os.listdir(OUTPUT_DIR) if file.endswith(".png")]
+        # use output_frames to create video
+        video_name = f"{OUTPUT_DIR}video_{uuid.uuid4()}.mp4"
+        imageio.mimsave(video_name, frames)
 
-        if len(output_paths) == 0:
-            raise Exception("No output images found. Please check the process.")
-
-        return output_paths
+        return Path(video_name)
