@@ -269,11 +269,11 @@ def main():
                         lr_box = gr.Number(value=2e-3, label='Learning Rate')
                         max_iters = gr.Slider(1, 500, 20, step=1, label='Max Iterations')
 
-                    with gr.Row():
-                        with gr.Column(min_width=100):
-                            reset_btn = gr.Button('Reset All')
-                        with gr.Column(min_width=100):
-                            undo_btn = gr.Button('Undo Last')
+                    # with gr.Row():
+                    #     with gr.Column(min_width=100):
+                    #         reset_btn = gr.Button('Reset All')
+                    #     with gr.Column(min_width=100):
+                    #         undo_btn = gr.Button('Undo Last')
                     with gr.Row():
                         btn = gr.Button('Drag it', variant='primary')
 
@@ -296,8 +296,8 @@ def main():
             on_show_save, outputs=save_panel).then(
             on_save_files, inputs=[image, state], outputs=[files]
         )
-        reset_btn.click(on_reset, inputs=[points, image, state], outputs=[points, image, target_point])
-        undo_btn.click(on_undo, inputs=[points, image, state, size], outputs=[points, image, target_point])
+        # reset_btn.click(on_reset, inputs=[points, image, state], outputs=[points, image, target_point])
+        # undo_btn.click(on_undo, inputs=[points, image, state, size], outputs=[points, image, target_point])
         model_dropdown.change(on_change_model, inputs=[model_dropdown, model], outputs=[model, state, image, mask, size])
         new_btn.click(on_new_image, inputs=[model, seed], outputs=[image, mask, state, points, target_point])
         max_iters.change(on_max_iter_change, inputs=max_iters, outputs=progress)
