@@ -196,21 +196,39 @@ def create_square_mask(
         ValueError: If the center or radius is invalid.
     """
     if not isinstance(center, list) or len(center) != 2:
-        raise ValueError("center must be a list of two integers")
+        raise ValueError(
+            f"Invalid center: {center}. Center should be a list with two elements representing Y and X coordinates respectively."
+        )
     if not isinstance(radius, int) or radius <= 0:
-        raise ValueError("radius must be a positive integer")
-    if (
-        center[0] < radius
-        or center[0] >= height - radius
-        or center[1] < radius
-        or center[1] >= width - radius
-    ):
-        raise ValueError("center and radius must be within the bounds of the mask")
+        raise ValueError(
+            f"Invalid radius: {radius}. Radius should be a positive integer value."
+        )
+    
+    # NOTE: Remember that center[0] is (y, _) and center[1] is (_, x)
+    x_lower_bound, x_upper_bound = radius, (width - radius)
+    y_lower_bound, y_upper_bound = radius, (height - radius)
+    is_center_x_out_of_bounds = (center[0] < y_lower_bound) or (center[0] >= y_upper_bound)
+    is_center_y_out_of_bounds = (center[1] < x_lower_bound) or center[1] >= x_upper_bound
+    if is_center_x_out_of_bounds or is_center_y_out_of_bounds:
+        eplison_percentage = 2
+        source_x_percentage_lower_bound = int((radius / width) * 100) + eplison_percentage
+        source_x_percentage_upper_bound = int((x_upper_bound / width) * 100) - eplison_percentage
+        source_y_percentage_lower_bound = int((y_lower_bound / height) * 100) + eplison_percentage
+        source_y_percentage_upper_bound = int((y_upper_bound / height) * 100) - eplison_percentage
+        error_message = (
+            f"Invalid center and radius values. Current values: center = ({center[0]:.2f}, {center[1]:.2f}), radius = {radius:.2f}. "
+            f"The center's X coordinate must be in the range [{x_lower_bound:.2f}, {x_upper_bound:.2f}]. "
+            f"The center's Y coordinate must be in the range [{y_lower_bound:.2f}, {y_upper_bound:.2f}]. "
+            f"`source_x_percentage` must be a value between [{source_x_percentage_lower_bound}%, {source_x_percentage_upper_bound}%] of the total width. "
+            f"`source_y_percentage` must be a value between [{source_y_percentage_lower_bound}%, {source_y_percentage_upper_bound}%] of the total height. "
+            f"Please adjust the `source_x_percentage` and `source_y_percentage` values."
+        )
+        raise ValueError(error_message)
 
     mask = torch.zeros((height, width), dtype=torch.float32)
     x1 = int(center[1]) - radius
     x2 = int(center[1]) + radius
     y1 = int(center[0]) - radius
     y2 = int(center[0]) + radius
-    mask[y1: y2 + 1, x1: x2 + 1] = 1.0
+    mask[y1 : y2 + 1, x1 : x2 + 1] = 1.0
     return mask.bool()

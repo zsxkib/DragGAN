@@ -33,8 +33,8 @@ CKPT_SIZE = {
     "ada/afhqwild.pkl": 512,
     "ada/brecahad.pkl": 512,
     "ada/metfaces.pkl": 512,
-    "human/stylegan_human_v2_512.pkl": 512,
-    "human/stylegan_human_v2_1024.pkl": 1024,
+    # "human/stylegan_human_v2_512.pkl": 512, # TODO: Doesn't work, Fix `utils.create_square_mask`
+    # "human/stylegan_human_v2_1024.pkl": 1024, # TODO: Doesn't work, Fix `utils.create_square_mask`
     "self_distill/bicycles_256_pytorch.pkl": 256,
     "self_distill/dogs_1024_pytorch.pkl": 1024,
     "self_distill/elephants_512_pytorch.pkl": 512,
@@ -44,7 +44,7 @@ CKPT_SIZE = {
     "self_distill/parrots_512_pytorch.pkl": 512,
 }
 DEFAULT_CKPT = "ada/afhqcat.pkl"  # NOTE: Not wrapped in Path(.) on purpose
-OUTPUT_DIR = Path("./out")
+OUTPUT_DIR = Path("./out/")
 
 
 class Predictor(BasePredictor):
@@ -60,12 +60,10 @@ class Predictor(BasePredictor):
     def init_output_dir(self) -> None:
         """Creates/Recreates the output folder where all the images and videos go"""
 
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         for child in self.output_dir.iterdir():
             if child.is_file():
                 child.unlink()
-            else:
-                shutil.rmtree(child)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def load_model(self, checkpoint: str = DEFAULT_CKPT) -> None:
         """Loads the model given a checkpoint path"""
@@ -223,11 +221,7 @@ class Predictor(BasePredictor):
         mask = {}
         max_iters = 1 if only_render_first_frame else maximum_n_iterations
         lr_box = 0 if only_render_first_frame else learning_rate
-        f = (
-            self.output_dir / f"output_1.png"
-            if only_render_first_frame
-            else self.output_dir / f"video_{uuid.uuid4()}.mp4"
-        )
+        f = self.output_dir / f"output_1.png" if only_render_first_frame else self.output_dir / f"video.mp4"
 
         frames = [
             image

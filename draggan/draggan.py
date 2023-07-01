@@ -256,6 +256,7 @@ def drag_gan(
         
         with torch.no_grad():
             img, F = forward_G(G, W_combined, device)
+            # TODO: Infer r2 and automatically handle bad "handles" (no pun int...)
             handle_points = point_tracking(F_resized, F0_resized, handle_points, handle_points0, r2, device)
 
         # if iter % 1 == 0:
