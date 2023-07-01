@@ -4,7 +4,7 @@
 # Standard library imports
 import shutil
 import uuid
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 # Related third-party imports
 import imageio
@@ -52,9 +52,10 @@ class Predictor(BasePredictor):
         """Load the model into memory to make running multiple predictions efficient"""
 
         self.device = "cuda"
-        self.init_output_dir()
         self.output_dir = OUTPUT_DIR
+        self.init_output_dir()
         self.load_model(DEFAULT_CKPT)
+        self.show_points_and_arrows = True
 
     def init_output_dir(self) -> None:
         """Creates/Recreates the output folder where all the images and videos go"""
@@ -86,11 +87,14 @@ class Predictor(BasePredictor):
         image: PILImage,
         points: Dict[str, List[List[int]]],
         point_size: int = 5,
-    ) -> PILImage:
+    ) -> np.ndarray:
         """Adds the points, lines, and arrows to the image"""
 
-        image = utils.draw_handle_target_points(image, points["handle"], points["target"], point_size)
-        return image
+        return (
+            utils.draw_handle_target_points(image, points["handle"], points["target"], point_size)
+            if self.show_points_and_arrows
+            else np.array(image)
+        )
 
     def on_drag(
         self,
@@ -100,7 +104,7 @@ class Predictor(BasePredictor):
         size: int,
         mask: Dict[str, Optional[Any]],
         lr_box: float,
-    ) -> Iterator[Tuple[np.ndarray, Dict[str, Any], int]]:
+    ) -> Generator[Tuple[PILImage, Dict[str, Any], int], Any, None]:
         """The magic drag function!"""
 
         if len(points["handle"]) == 0:
@@ -147,8 +151,8 @@ class Predictor(BasePredictor):
 
     def predict(
         self,
-        just_render_first_frame: bool = Input(
-            description="If true, only the first frame will be rendered, providing a preview of the initial and final positions.",
+        only_render_first_frame: bool = Input(
+            description="If true, only the first frame will be rendered, providing a preview of the initial and final positions. Remember to check `show_points_and_arrows`!",
             default=False,
         ),
         stylegan2_model: str = Input(
@@ -156,41 +160,45 @@ class Predictor(BasePredictor):
             choices=list(CKPT_SIZE.keys()),
             default=DEFAULT_CKPT,
         ),
-        handle_y_pct: float = Input(
-            description="Percentage defining the starting y-coordinate from the bottom. Higher values mean higher up on the screen.",
-            ge=0,
-            le=100,
-            default=50,
-        ),
-        handle_x_pct: float = Input(
+        source_x_percentage: float = Input(
             description="Percentage defining the starting x-coordinate from the left. Higher values mean further to the right on the screen.",
             ge=0,
             le=100,
             default=50,
         ),
-        target_y_pct: float = Input(
-            description="Percentage defining the final y-coordinate from the bottom. Higher values mean higher up on the screen.",
+        source_y_percentage: float = Input(
+            description="Percentage defining the starting y-coordinate from the bottom. Higher values mean higher up on the screen.",
             ge=0,
             le=100,
-            default=40,
+            default=50,
         ),
-        target_x_pct: float = Input(
+        target_x_percentage: float = Input(
             description="Percentage defining the final x-coordinate from the left. Higher values mean further to the right on the screen.",
             ge=0,
             le=100,
             default=10,
         ),
-        lr_box: float = Input(
+        target_y_percentage: float = Input(
+            description="Percentage defining the final y-coordinate from the bottom. Higher values mean higher up on the screen.",
+            ge=0,
+            le=100,
+            default=40,
+        ),
+        learning_rate: float = Input(
             description="Set the learning rate for the operation, which controls how quickly the model learns to drag the path from the initial to the final position.",
             ge=1e-4,
             le=1,
             default=3e-3,
         ),
-        max_iters: int = Input(
+        maximum_n_iterations: int = Input(
             description="The maximum number of iterations allowed for the operation, limiting how long the path dragging can continue.",
             ge=1,
             le=100,
             default=20,
+        ),
+        show_points_and_arrows: bool = Input(
+            description="Toggles the display of arrows and points denoting the interpolation path in the generated video.",
+            default=True,
         ),
     ) -> Path:
         """Run a single prediction on the model"""
@@ -198,21 +206,26 @@ class Predictor(BasePredictor):
         if self.current_checkpoint != stylegan2_model:
             self.load_model(stylegan2_model)
         self.init_output_dir()
+        self.show_points_and_arrows = show_points_and_arrows
 
         size = CKPT_SIZE[stylegan2_model]
         # Origin is bottom left
-        handle_y, target_y = (int(size * (100 - handle_y_pct) / 100), int(size * (100 - target_y_pct) / 100))
-        handle_x, target_x = (int(size * handle_x_pct / 100), int(size * target_x_pct / 100))
-
+        handle_y, target_y = (
+            int(size * (100 - source_y_percentage) / 100),
+            int(size * (100 - target_y_percentage) / 100),
+        )
+        handle_x, target_x = (
+            int(size * source_x_percentage / 100),
+            int(size * target_x_percentage / 100),
+        )
         points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}
-
         state = {"W": self.W, "history": []}
         mask = {}
-        max_iters = 1 if just_render_first_frame else max_iters
-        lr_box = 0 if just_render_first_frame else lr_box
+        max_iters = 1 if only_render_first_frame else maximum_n_iterations
+        lr_box = 0 if only_render_first_frame else learning_rate
         f = (
             self.output_dir / f"output_1.png"
-            if just_render_first_frame
+            if only_render_first_frame
             else self.output_dir / f"video_{uuid.uuid4()}.mp4"
         )
 
@@ -223,7 +236,7 @@ class Predictor(BasePredictor):
                 total=max_iters,
             )
         ]
-        if not just_render_first_frame:
+        if not only_render_first_frame:
             imageio.mimsave(f, frames)
 
         return Path(f)
