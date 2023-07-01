@@ -51,7 +51,7 @@ def load_model(
     # Apply the hook to the 7th layer (256x256)
     for i, (name, module) in enumerate(G.synthesis.named_children()):
         if i == 6:
-            print("Registering hook for:", name)
+            # print("Registering hook for:", name)
             module.register_forward_hook(hook)
 
     return G
@@ -69,7 +69,7 @@ def register_hook(G):
     # Apply the hook to the 7th layer (256x256)
     for i, (name, module) in enumerate(G.synthesis.named_children()):
         if i == 6:
-            print("Registering hook for:", name)
+            # print("Registering hook for:", name)
             module.register_forward_hook(hook)
     return G
 
@@ -250,9 +250,9 @@ def drag_gan(
         loss.backward()
         optimizer.step()
 
-        print(
-            f"Loss: {loss.item():0.2f}\tTime: {(time.perf_counter() - start) * 1000:.0f}ms"
-        )
+        # print(
+        #     f"Loss: {loss.item():0.2f}\tTime: {(time.perf_counter() - start) * 1000:.0f}ms"
+        # )
         
         with torch.no_grad():
             img, F = forward_G(G, W_combined, device)
