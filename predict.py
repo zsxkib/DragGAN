@@ -2,8 +2,9 @@
 # https://github.com/replicate/cog/blob/main/docs/python.md
 
 # Standard library imports
-import shutil
-import uuid
+import re
+import sys
+from random import randint
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 # Related third-party imports
@@ -51,11 +52,15 @@ class Predictor(BasePredictor):
     def setup(self) -> None:
         """Load the model into memory to make running multiple predictions efficient"""
 
+        self.seed = int(1)
         self.device = "cuda"
         self.output_dir = OUTPUT_DIR
         self.init_output_dir()
         self.load_model(DEFAULT_CKPT)
         self.show_points_and_arrows = True
+        # TODO: Change to lazy loading (cache type thing)
+        # for checkpoint in CKPT_SIZE.keys():
+        #     self.load_model(checkpoint)
 
     def init_output_dir(self) -> None:
         """Creates/Recreates the output folder where all the images and videos go"""
@@ -71,7 +76,7 @@ class Predictor(BasePredictor):
         self.G = draggan.load_model(utils.get_path(checkpoint), device=self.device)
         self.W = draggan.generate_W(
             self.G,
-            seed=int(1),
+            seed=self.seed,
             device=self.device,
             truncation_psi=0.8,
             truncation_cutoff=8,
@@ -89,7 +94,9 @@ class Predictor(BasePredictor):
         """Adds the points, lines, and arrows to the image"""
 
         return (
-            utils.draw_handle_target_points(image, points["handle"], points["target"], point_size)
+            utils.draw_handle_target_points(
+                image, points["handle"], points["target"], point_size
+            )
             if self.show_points_and_arrows
             else np.array(image)
         )
@@ -106,7 +113,9 @@ class Predictor(BasePredictor):
         """The magic drag function!"""
 
         if len(points["handle"]) == 0:
-            raise Exception("You must select at least one handle point and target point.")
+            raise Exception(
+                "You must select at least one handle point and target point."
+            )
         if len(points["handle"]) != len(points["target"]):
             raise Exception(
                 "You have uncompleted handle points, try to selct a target point or undo the handle point."
@@ -114,8 +123,12 @@ class Predictor(BasePredictor):
         max_iters = int(max_iters)
         W = state["W"]
 
-        handle_points = [torch.tensor(p, device=self.device).float() for p in points["handle"]]
-        target_points = [torch.tensor(p, device=self.device).float() for p in points["target"]]
+        handle_points = [
+            torch.tensor(p, device=self.device).float() for p in points["handle"]
+        ]
+        target_points = [
+            torch.tensor(p, device=self.device).float() for p in points["target"]
+        ]
 
         if mask.get("mask", None) is not None:
             mask = Image.fromarray(mask["mask"]).convert("L")
@@ -137,7 +150,9 @@ class Predictor(BasePredictor):
             lr=lr_box,
         ):
             points["handle"] = [p.cpu().numpy().astype("int") for p in handle_points]
-            image = self.add_points_to_image(image, points, point_size=SIZE_TO_CLICK_SIZE[size])
+            image = self.add_points_to_image(
+                image, points, point_size=SIZE_TO_CLICK_SIZE[size]
+            )
 
             state["history"].append(image)
             step += 1
@@ -147,45 +162,102 @@ class Predictor(BasePredictor):
 
             yield (image, state, step)
 
+    def parse_input(self, input_str: str) -> List[List[float]]:
+        """
+        Parses a string of comma separated numbers possibly surrounded by various types of brackets.
+        Converts them into list of pairs (as list of floats).
+
+        Parameters
+        ----------
+        input_str : str
+            The string to parse. It should contain comma separated numbers, possibly surrounded by various types of brackets.
+
+        Returns
+        -------
+        List[List[float]]
+            A list of lists, where each sub-list contains a pair of floats.
+
+        Notes
+        -----
+        The function ignores invalid characters (non-numbers and non-commas) and handles numbers without a leading digit.
+
+        Examples
+        --------
+        Normal cases:
+        >>> parse_input("[(1,2), (3,4)]")
+        [[1.0, 2.0], [3.0, 4.0]]
+
+        >>> parse_input("[[1,2], [3,4]]")
+        [[1.0, 2.0], [3.0, 4.0]]
+
+        Multiple nested brackets:
+        >>> parse_input("[[[1, 2], [3, 4]], [[5, 6], [7, 8]]]")
+        [[1, 2], [3, 4], [5, 6], [7, 8]]
+
+        Negative numbers:
+        >>> parse_input("[-1, -2]")
+        [[-1, -2]]
+
+        Decimal points without leading digits:
+        >>> parse_input("[.5, 1]")
+        [[0.5, 1]]
+
+        Whitespace variations:
+        >>> parse_input("[1,     2]")
+        [[1, 2]]
+
+        >>> parse_input("[(1,  2),  (3,4)]")
+        [[1, 2], [3, 4]]
+
+        Invalid characters:
+        >>> parse_input("a,b")
+        [[0.0, 0.0]]
+        """
+        # sanitize the input, removing all brackets and only leaving numbers, commas, and minus signs
+        sanitized = re.sub(r"[^\d.,-]", "", input_str)
+
+        # split the sanitized input string by commas
+        numbers_str = sanitized.split(",")
+
+        # convert strings to int or float as necessary
+        # Exclude empty strings and convert to float even for whole numbers for consistency
+        numbers = [float(x) if x else 0.0 for x in numbers_str]
+
+        # group them into pairs and convert them into the format that you need (list of lists)
+        # This ensures we always have pairs of numbers even if an odd number of numbers is provided
+        return [
+            numbers[i : i + 2]
+            for i in range(0, len(numbers), 2)
+            if len(numbers[i : i + 2]) == 2
+        ]
+
     def predict(
         self,
         only_render_first_frame: bool = Input(
             description="If true, only the first frame will be rendered, providing a preview of the initial and final positions. Remember to check `show_points_and_arrows`!",
             default=False,
         ),
+        show_points_and_arrows: bool = Input(
+            description="Toggles the display of arrows and points denoting the interpolation path in the generated video.",
+            default=True,
+        ),
         stylegan2_model: str = Input(
             description="The chosen StyleGAN2 model to perform the operation.",
             choices=list(CKPT_SIZE.keys()),
             default=DEFAULT_CKPT,
         ),
-        source_x_percentage: float = Input(
-            description="Percentage defining the starting x-coordinate from the left. Higher values mean further to the right on the screen.",
-            ge=0,
-            le=100,
-            default=50,
+        source_pixel_coords: str = Input(
+            description="Pixel values defining the starting coordinates. String should be formatted as '(x, y)', where x is the pixel count from the left, and y is the pixel count from the bottom. Higher x values mean further to the right on the screen, higher y values mean higher up on the screen.",
+            default="[(200, 100)]",
         ),
-        source_y_percentage: float = Input(
-            description="Percentage defining the starting y-coordinate from the bottom. Higher values mean higher up on the screen.",
-            ge=0,
-            le=100,
-            default=50,
-        ),
-        target_x_percentage: float = Input(
-            description="Percentage defining the final x-coordinate from the left. Higher values mean further to the right on the screen.",
-            ge=0,
-            le=100,
-            default=10,
-        ),
-        target_y_percentage: float = Input(
-            description="Percentage defining the final y-coordinate from the bottom. Higher values mean higher up on the screen.",
-            ge=0,
-            le=100,
-            default=40,
+        target_pixel_coords: str = Input(
+            description="Pixel values defining the final coordinates. String should be formatted as '(x, y)', where x is the pixel count from the left, and y is the pixel count from the bottom. Higher x values mean further to the right on the screen, higher y values mean higher up on the screen.",
+            default="[(100, 200)]",
         ),
         learning_rate: float = Input(
             description="Set the learning rate for the operation, which controls how quickly the model learns to drag the path from the initial to the final position.",
             ge=1e-4,
-            le=1,
+            le=0.15,
             default=3e-3,
         ),
         maximum_n_iterations: int = Input(
@@ -194,12 +266,14 @@ class Predictor(BasePredictor):
             le=100,
             default=20,
         ),
-        show_points_and_arrows: bool = Input(
-            description="Toggles the display of arrows and points denoting the interpolation path in the generated video.",
-            default=True,
+        seed: int = Input(
+            description="Changes init image via the random seed. Set to -1 for a random seed, otherwise provide an integer value.",
+            default=-1,
         ),
     ) -> Path:
         """Run a single prediction on the model"""
+
+        self.seed = randint(0, sys.maxsize) if seed == -1 else int(seed)
 
         if self.current_checkpoint != stylegan2_model:
             self.load_model(stylegan2_model)
@@ -207,21 +281,19 @@ class Predictor(BasePredictor):
         self.show_points_and_arrows = show_points_and_arrows
 
         size = CKPT_SIZE[stylegan2_model]
-        # Origin is bottom left
-        handle_y, target_y = (
-            int(size * (100 - source_y_percentage) / 100),
-            int(size * (100 - target_y_percentage) / 100),
-        )
-        handle_x, target_x = (
-            int(size * source_x_percentage / 100),
-            int(size * target_x_percentage / 100),
-        )
-        points = {"target": [[target_y, target_x]], "handle": [[handle_y, handle_x]]}
+        points = {
+            "target": self.parse_input(target_pixel_coords),
+            "handle": self.parse_input(source_pixel_coords),
+        }
         state = {"W": self.W, "history": []}
         mask = {}
         max_iters = 1 if only_render_first_frame else maximum_n_iterations
         lr_box = 0 if only_render_first_frame else learning_rate
-        f = self.output_dir / f"output_1.png" if only_render_first_frame else self.output_dir / f"video.mp4"
+        f = (
+            self.output_dir / f"output_1.png"
+            if only_render_first_frame
+            else self.output_dir / f"video.mp4"
+        )
 
         frames = [
             image
